@@ -1,0 +1,83 @@
+#!/usr/bin/env bats
+
+# Using basic command & server invoke arguments
+load template_transfer_validation.bash
+
+# Test Case 1:
+# Upload a file with no content, file should appear on server with correct
+# name and size.
+
+@test "Case 1 - Transfer Empty File" {
+  skip
+  echo Generating test file.
+
+  touch $WORK_CLIENT/empty_testfile
+  
+  run_client $WORK_CLIENT/empty_testfile
+  shutdown_server
+  validate_server
+}
+
+# Test for large file support. uint max value is 4GB.
+# We transmit a 6GB file to assert large file support exists
+@test "Case 2 - Transfer 6GB File" {
+  skip
+  echo Generating test file.
+  fallocate -l 6G $WORK_CLIENT/bigfile
+
+  # Put some markers in so we can test that the entire file was actually transferred.
+  echo "head of large file" | dd conv=notrunc bs=1 of=$WORK_CLIENT/bigfile
+  echo "Tail of large file" >> $WORK_CLIENT/bigfile
+  
+  run_client $WORK_CLIENT/*
+
+  shutdown_server
+  validate_server
+}
+
+# We transmit a collection of files. Tests general file transfer capabilities
+@test "Case 3 - Transfer File Collection" {
+  skip
+  echo Generating test file.
+  
+  for i in {0..200}; do
+    dd if=/dev/urandom of=$WORK_CLIENT/datafile_$i bs=1K count=$i
+  done
+  
+  run_client $WORK_CLIENT/*
+
+  shutdown_server
+  validate_server
+}
+
+# Test with repeated file names
+@test "Case 4 - Repeated File Names" {
+  skip
+  echo Generating test file.
+
+  for i in {1..10}; do
+    mkdir -p $WORK_CLIENT/$i/
+
+    dd if=/dev/urandom of=$WORK_CLIENT/$i/datafile_a.bin bs=1K count=6
+    dd if=/dev/urandom of=$WORK_CLIENT/$i/b.bin bs=1K count=6
+    dd if=/dev/urandom of=$WORK_CLIENT/$i/datafile_c bs=1K count=6
+    run_client $WORK_CLIENT/$i/*
+
+    vflag=
+    if [[ $i -gt 1 ]]; then
+      vflag="-v$(( $i - 1 ))"
+    fi
+
+    mv $WORK_CLIENT/$i/datafile_a.bin $WORK_CLIENT/datafile_a${vflag}.bin
+    mv $WORK_CLIENT/$i/b.bin $WORK_CLIENT/b${vflag}.bin
+    mv $WORK_CLIENT/$i/datafile_c $WORK_CLIENT/datafile_c${vflag}
+    rm -rf $WORK_CLIENT/$i/
+
+    # Shutdown in-between to ensure no race conditions with versions
+    shutdown_server
+    startup_server
+  done
+
+  shutdown_server
+  validate_server
+}
